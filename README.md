@@ -1,4 +1,4 @@
-# Capstone_Project Online Retail
+# Capstone Project Online Retail
 
 # Purpose
 
