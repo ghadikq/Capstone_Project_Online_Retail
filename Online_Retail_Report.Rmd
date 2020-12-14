@@ -1,0 +1,597 @@
+---
+title: "Online Retail Report"
+author: "Ghadi K"
+date: "12-14-2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(class.output = "bg-warning")
+```
+
+# Purpose
+
+Understand data better and extract insights from it to provide insight for decision-makers to improve company marketing and increase sales.<br />
+Also, showcase how can adding a recommender engine help to increase the company sales.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Import libraries 
+  library("readxl")
+  library(DT)
+  library(arules)#for representing, manipulating and analyzing transaction data and patterns
+  library(arulesViz)#Extends package 'arules' with various visualization techniques for association rules and item-sets.
+  library(knitr)#Dynamic Report generation in R
+  library(ggplot2)
+  library(lubridate)#make it easier to work with dates and times.
+  library(plyr)#Tools for Splitting, Applying and Combining Data
+  library(dplyr)
+  library(RColorBrewer)
+  library(tidyverse)
+  library(plotly) # for Interactive Plots
+  library(scales) 
+
+```
+
+# Dataset
+
+This analysis is on Online_Retail_II dataset provided by UCI [Link](https://archive.ics.uci.edu/ml/datasets/Online+Retail+II). <br /> 
+
+The dataset contain transactions occurring for a UK-based and registered online shop , The company mainly sells unique all-occasion gift-ware. Many customers of the company are wholesalers. <br /> 
+
+The dataset contains the following variables:<br /> 
+
+| Variable       | Description                                                         |
+|----------------|---------------------------------------------------------------------|
+| InvoiceNo      |6-digit integral number uniquely assigned to each transaction.       |
+|                |If this code starts with the letter 'c', it indicates a cancellation |
+| StockCode      | Product (item) code                                                 |
+| Description    |  Product (item) name                                                |
+| Quantity       |  quantities of each product (item) per transaction                  |   
+| InvoiceDate    | Invice date and time                                                |
+| UnitPrice      |  Product price per unit in sterling (Â£)                            |
+| CustomerID     | Customer number/Id                                                  |
+| Country        | country where a customer resides                                    |
+
+
+You can access the dataset directly from data folder in this repository.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Import Data 
+  online_retail <- read_excel('data//online_retail_II.xlsx')
+
+# Create small sample to use when test code first then apply code to entire data
+Sample_Oretail <- sample_n(online_retail, 3000)
+
+```
+
+# Structure Of The Dataset
+
+First explore data structure and make it in appropriate structure for the analysis. <br /> 
+Here is the dim of dataset it has 525461 rows and 8 columns. <br /> 
+Also the data has NA values located at Description and Customer ID. <br /> 
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Data Structure
+  dim(online_retail) #original = 525461 obs of 8 var
+  anyNA(online_retail)# check NA false indicate no NA 
+
+  colSums(is.na(online_retail)) # show na in each column
+```
+
+The data contain as well negative values which in Quantity and Price columns. These negative values represent the canceled Quantity and Price for canceled Invoices. <br /> 
+I set these values to 0 by covert it to 0 it will not affect the computations because in this analysis I want to explore the valid invoices only. So, will not use the canceled Invoices in this analysis. <br /> 
+
+Last step to fix data format changing columns type so it's appropriate type and create column for Total Amount of each quantity of product. <br /> 
+
+You can see below the final data structure. <br /> 
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# change columns type
+  online_retail$Invoice <- as.numeric(online_retail$Invoice)
+  online_retail$Country <- as.factor(online_retail$Country)
+  Time <- format(online_retail$InvoiceDate,"%H:%M:%S")
+  
+online_retail$InvoiceDate<-  as.Date(online_retail$InvoiceDate,format = "%d-%m-%y") # change type to date & correct format
+
+# fix InvoiceDate type to use it in plots
+online_retail$day<-day(online_retail$InvoiceDate)
+online_retail$month<-month(online_retail$InvoiceDate)
+online_retail$year<-year(online_retail$InvoiceDate)
+
+online_retail$day<-as.factor(online_retail$day)
+online_retail$month<-as.factor(online_retail$month)
+online_retail$year<-as.factor(online_retail$year)
+
+# create column for Total Amount for each Invoice
+  online_retail$All_Units_Price <- online_retail$Quantity * online_retail$Price
+  
+# remove negative values 
+  online_retail <- as.data.frame(online_retail) # change it to df to overcome Error in replace 0
+  online_retail[online_retail < 0] <- 0 
+  online_retail <- as.tibble(online_retail) # change it back to tibble
+  # class(online_retail) check type for data
+  
+# Final structure of data
+  str(online_retail)
+
+```
+
+# Exploratory Data Analysis 
+
+In This section will analysis to answer question from data information.first is summary of data.
+
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# names(online_retail) to see columns names
+
+# head(online_retail) 
+
+summary(online_retail)
+```
+
+**How many data rows in each year?** <br />
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Pie chart show how many data rows in each year 
+pie_year <- table(online_retail$year)
+lbls <- paste(names(pie_year), "\n", pie_year, sep="")
+pie(pie_year, labels = lbls,
+   main="Data Available for each Year")
+```
+
+
+
+**All Quantites sold in this dataset.** <br />
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+sum(online_retail$Quantity)# this data has 5327239 sold products
+
+```
+
+**First/Last date the data was collected in** <br />
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+#data collection start/end date
+date_1st <- online_retail$InvoiceDate[order(online_retail$InvoiceDate)[1]]
+date_last <- online_retail$InvoiceDate[order(online_retail$InvoiceDate)[length(online_retail$InvoiceDate)]]
+date_1st
+date_last
+```
+## Based on Countries
+
+**Number of countries in the data** <br />
+
+The data has 40 different countries.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Number of countries in the data
+nlevels(online_retail$Country)
+```
+
+**What is total orders for each country with total quantity?** <br />
+
+Table shows each country with number of Invoice and total products quantity sold in each country.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Table shows each country with number of Invoice and total products quantity sold in the country
+retailTable <- online_retail %>% 
+  group_by(Country) %>% 
+  summarise(No.Invoice = length(Country),
+            Total_Quantity = sum(Quantity))
+
+datatable(retailTable)
+```
+
+**Graph shows quantity distirbution for each country** <br />
+
+We can see that since store is based in United Kingdom it has the highest amount of orders and sold products.You can see that Nigeria has the lowest amount of orders and sold products.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+online_retail %>% 
+  group_by(Country) %>%
+  ggplot(aes(Quantity, Country)) +
+  stat_sum(alpha = 0.2, shape = 16) +
+  coord_cartesian(xlim = c(0,1000)) +
+  theme_minimal()
+```
+
+## Based on Invoices
+
+**How many Invoices in data?** <br />
+
+This data contain total of 19,216 Invoice the below table show you the Invoice with its total quantity and total price.<br /> 
+
+The Total Price and Total Qantity in the data help us find pattrens in Invoices. For example I found that the highest Invoice is 493819 with Total Qantity = 25018	and Total_Price = 44051.6.<br /> 
+
+The Invoices with Total Price = 0 indicate that it is a canceled order so it is made no profit for the shop.<br /> 
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+invoiceTable <- online_retail %>% 
+  group_by(Invoice)%>%
+  summarise(Total_Quantity = sum(Quantity),
+            Total_Price = sum(All_Units_Price))
+datatable(invoiceTable)
+```
+
+
+# Based on Customers
+
+This table show Number of Customers and Total Sales for each Country. You can see that Lebanon has lowest profit and EIRE(Ireland) has the highest number of customer and profit after UK.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# find number of customers from each counties 
+
+#To find the customer with StockCode without null
+customer=online_retail[!(online_retail$StockCode==" "),] 
+
+#What is the frequency distribution of countries?
+cc_count<-customer %>% 
+      group_by(customer$Country)%>%
+      summarise(Number_of_Customers=n())%>%
+      ungroup()%>%
+      arrange()
+
+names(cc_count)[names(cc_count) == "customer$Country"] <- "Country"# change column name
+
+# datatable(cc_count) table for num of customer only
+
+# find number of customers and total sales from each counties
+
+# To create new variable Total_Sales along with all variables. 
+Sales_Detail<-customer %>% 
+  mutate(Total_Sales = Quantity*Price)
+# Removed Total_Sales where values are coming NA
+x1<-Sales_Detail%>% 
+  filter(!is.na(Total_Sales))
+#To be found maximum Sales Amount country wise
+Total_Amount_Country <- x1 %>%group_by(Country)%>% summarise(Total_Sales =sum(Total_Sales)) %>%arrange(desc(Total_Sales))
+
+#datatable(Total_Amount_Country,cc_count$Number_of_Customers)
+
+Cus_Con_Table <- merge(cc_count, Total_Amount_Country, by.x="Country")
+datatable(Cus_Con_Table)
+```
+
+Maximum number of customer is 485852 which from United Kingdom and minmum number of customer is 13 which from Lebanon.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+max(cc_count$Number_of_Customers) # maximum number of customer is 485852 which from United Kingdom
+min(cc_count$Number_of_Customers) # minmum number of customer is 13 which from Lebanon
+```
+
+Also I found total number of unique customers which is 4384 and total number of unique StockCode which is 4631.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+#What are the total number of unique customers?
+n_distinct(customer$`Customer ID`) # 4384
+
+#What are the total number of unique StockCode?
+n_distinct(customer$StockCode) # 4631
+```
+
+## Based on Quantity and Profit
+
+Here I explore data based on Quantity and Profit. This can give insight on how did the company preform so far. And extract some pattrens that can help in future.<br />
+Total quantity sold: 
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+sum(online_retail$Quantity) # 6011588 total quantity sold
+
+```
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Table for Sum of quantity sold for each month of year
+sumQ<-online_retail %>% 
+   group_by(year,month) %>% 
+   summarise(Quantity = sum(Quantity))
+
+# calculate total sales
+Sales_Detail<-customer %>% 
+  mutate(Total_Sales = Quantity*Price)
+
+# Removed Total_Sales where values are coming NA
+x1<-Sales_Detail%>% 
+  filter(!is.na(Total_Sales))
+
+# found total sales for each month
+Total_Profit_Month <- x1%>%
+  group_by(month)%>% 
+  summarise(Total_Sales =sum(Total_Sales)) %>%
+  arrange(desc(Total_Sales))
+
+# found total sales for each year
+Total_Profit_Year <- x1%>%
+  group_by(year)%>% 
+  summarise(Total_Sales =sum(Total_Sales)) %>%
+  arrange(desc(Total_Sales))
+
+# found total Quantity for each day
+sumQd<-online_retail %>% 
+   group_by(day) %>% 
+   summarise(Quantity = sum(Quantity))
+
+```
+
+### Days
+
+This plot show Quantity sold per day during entire year. This gives pattern which can help in marketing campaigns. For example sales decrease after day 15 so the company can have different offers to increase sales another example is in duration between days 22-24 the sales is stable.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Total profit per month 
+figqd <- plot_ly(sumQd, x = ~day, y = ~Quantity, type = 'bar')
+figqd <- figqd %>% layout(title = 'Total of Items Sold per Day')
+figqd
+```
+
+### Months
+
+**Tell us the Monthly Performance of Store**<br />
+This plot show the total profit per month during entire year.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Total profit per month 
+figpm <- plot_ly(Total_Profit_Month, x = ~month, y = ~Total_Sales, type = 'bar')
+figpm <- figpm %>% layout(title = 'Total Profit per Month')
+figpm
+```
+
+**What is the amount of items soled every month?**<br />
+
+This plot provide every month with total quantity sold in it and percentage of it.Note that its sorted from highest total quantity to lowest.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# pie chart shows total quantity sold for each month 
+fig <- plot_ly(online_retail, labels = ~month, values = ~Quantity, type = 'pie')
+fig <- fig %>% layout(title = 'Total of Items Sold per per Month',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+
+fig
+```
+
+
+### Years
+
+**What is total profit per year?**<br />
+
+Even though this may not be fair comparison because this data has less records from year 2009.But this answer the question and provide insight on profit for year 2010 as whole.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Total Profit per year 
+figpy <- plot_ly(Total_Profit_Year, x = ~year, y = ~Total_Sales, type = 'bar')
+figpy <- figpy %>% layout(title = 'Total Profit per Year')
+figpy
+```
+
+**What is total items sold per year?**<br />
+
+This plot show the total number of items sold in each year with its precentage.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Sum of quantity sold for each year
+sumQy <- online_retail %>% 
+         group_by(year) %>% 
+         summarise(Quantity = sum(Quantity))
+```
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Plot Total Quantity per year 
+figqy <- plot_ly(sumQy, labels = ~year,values = ~Quantity, type = 'pie')
+figqy <- figqy %>% layout(title = 'Total of Items Sold per Year')
+figqy
+
+```
+
+# Market Basket Analysis
+
+**Why this analysis?**<br />
+It allows the markets to identify relationships between the products that people buy. For example, customers that buy a pencil and paper are likely to buy a rubber or ruler. This analysis allows retailers to identify relationships between the products that people buy.<br />
+
+In the case of the online shop, this can help in items recommendation so that after the customer adds the item into the basket the website will show recommendation based on that item which increases the percentage of customer buys recommended item and this eventually will increase the company sales.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Create data frame that has each invoice with all its products 
+Prouducts <- ddply(online_retail,c("Invoice"),
+                   function(online_retail)paste(online_retail$Description,collapse = ","))
+dim(Prouducts)
+```
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# now change data into basket format by having P_Description only & save it as csv
+names(Prouducts)
+names(Prouducts)[names(Prouducts) == "V1"] <- "P_Description"# change column name
+
+Prouducts$Invoice <- NULL # remove Invoice column
+write.csv(Prouducts,"data//all_Prouducts_MB.csv", quote = FALSE, row.names = FALSE)
+```
+
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Import data as transaction class
+Prouducts_t <- read.transactions("data//all_Prouducts_MB.csv", format = 'basket', sep=',')#function from arules package
+summary(Prouducts_t)
+```
+
+**What is top 20 sold items in data?**<br />
+
+Here is item frequency plot for the top 20 items. It is shows 20 popular items in store with the total number of it sold.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+# Create an item frequency plot for the top 20 items
+
+# If type = absolute it will plot numeric frequencies of each item independently.
+itemFrequencyPlot(Prouducts_t,topN=20,type="absolute",col=brewer.pal(8,'Paired'), main="Prouducts Frequency Plot")
+
+# If type = relative it will plot how many times these items have appeared as compared to others.
+#itemFrequencyPlot(Prouducts_t,topN=20,type="relative",col=brewer.pal(8,'Pastel2'), main="Relative Item Frequency Plot")
+```
+
+This plot show us what items if we but together will increase sales for both items.<br />
+
+For example if customer add Lunch Bag Black Skull probably the customer will add Jumbo Storage Bag Skull so if shop website recommend this item after customer add one of them to the basket the customer will see it and will add it to basket as well which will increase the sales for the shop.
+
+## Association Rules 
+
+First what is Association Rules ?<br />
+It is discovering interesting relations between variables in large databases. It is intended to identify strong rules discovered in databases using some measures of interestingness.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+association_rules <- apriori(Prouducts_t, parameter = list(supp=0.001, conf=0.8,maxlen=5))
+summary(association_rules)
+```
+
+Now there is set of 7201 rules. So,Let's see first 10.<br />
+
+confidence is metric to how confidant we are in this rule for example who ever buy {ART LIGHTS}	=>	will definitely buy {FUNK MONKEY} since that confidence = 1.<br />
+
+This an example of Association Rules [Top 10 rules base on confidence]
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+inspect(association_rules[1:10])
+```
+
+Now there are lot of rules which not that helpful so next will reduce the number of rules so it can be more helpful.<br />
+If I reduce the maxlen to 2 so that the number of rules will reduce which is now set of 211 rules . This can work if you want 2 items only.<br />
+
+But I Set m3xlen to 5 since I imagine that the website page recommend 5 items only so that it will not distract or annoy the customers.<br />
+
+The summary for short version Association Rules:
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+shortAR <- apriori(Prouducts_t, parameter = list(supp=0.001, conf=0.8,maxlen=2))# Set m3xlen to 5 since I imagine that the website page recommend 5 items only so that it will not distract or annoy the customers
+summary(shortAR)
+```
+
+Also to reduce Number of rules I remove the redundant rules that is subset of larger rules to only obtain the basic rules.<br />
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+subsetAR <- which(colSums(is.subset(association_rules, association_rules)) > 1) # get subset rules in vector
+length(subsetAR) 
+```
+
+Now I now that my rules has  redundant rule so now will remove these rules from Association Rules.<br />
+
+Here is the final rules obtained from this data.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+Final_AR <- association_rules[-subsetAR] # remove subset rules.
+length(Final_AR) 
+summary(Final_AR)
+```
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE,results='hide'}
+#inspect(Final_AR[1:10])
+```
+
+## Reason To Use
+
+After generating the rules we can find rules related to given items so I can work on a specific product and find causes influence it.<br />
+
+Let's try this for WHITE HANGING HEART T-LIGHT HOLDER consider it our item that we want to explore its rules.<br />
+
+Remember this item is top selling item in our data.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+itemAR <- apriori(Prouducts_t, parameter = list(supp=0.001, conf=0.8),appearance = list(default="lhs",rhs="WHITE HANGING HEART T-LIGHT HOLDER"))
+
+```
+
+This the top 6 rules for the item we chose. <br />
+
+This what customers buy before buying WHITE HANGING HEART T-LIGHT HOLDER.<br />
+NOTE: item in rhs
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+inspect(head(itemAR))
+```
+
+
+Now It's time to answer the following question: <br />
+**What Did Other Customer buy with This Item?** <br />
+NOTE : we keep the item on lhs in this step <br />
+
+I going to use different product SMALL POP BOX
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+itemAR_who <- apriori(Prouducts_t, parameter = list(supp=0.001, conf=0.8),appearance = list(lhs="SMALL POP BOX",default="rhs"))
+
+```
+
+**How many customers buy SMALL POP BOX with other items ?** <br />
+Now the answer for this question is 28 customers buy FUNKY MONKEY when they buy SMALL POP BOX and the data provide the insight that this happened with confidence of 100%. This a small example you can imagine how much this will be helpful when having larger data and popular items.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+inspect(head(itemAR_who))
+
+```
+
+## Visulize Rules
+
+**How this rules provide direct insight?**<br />
+For normal people it is hard to understand the summary or codes provided up. So, I used Interactive Plots to showcase the rules in easy way to understand and user friendly to explore.
+
+### Interactive Scatter-Plot
+
+Using arules package I create Interactive Scatter-Plot for this dataset rules. The darker the color the more confident our rule is. This plot can help found strong rules easily and make decisions based on this information. <br />
+
+This plot show best 1000 rules.<br />
+Note: the higher the confidence the more accurate is the rule.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+plotly_arules(Final_AR,
+              marker = list(opacity = .8, size = 9, symbol = 0),
+              jitter = 10, 
+              measure = c("support", "lift"), 
+              shading = "confidence",
+              colors=c("Blues")) 
+  
+
+```
+
+
+### Graph-Based
+
+**Showcase top 20 rules extracted from data?**<br />
+
+Here a representation of the rules using Graph-Based where Arrows pointing from items to rule vertices indicate LHS items and an arrow from a rule to an item indicates the RHS. <br />
+
+This technique is hard to understand if we use big number of rules so here I only plot top 20 rules.<br />
+Note: You can filter it for a certain item you want or rule for scroll list on top-left side.
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+Top20Rules <- head(Final_AR, n = 20, by = "confidence")
+
+plot(Top20Rules, method = "graph",  engine = "htmlwidget") # use engine to make graph interactive 
+
+```
+
+### Parallel Coordinates Plot
+
+Parallel Coordinates Plot is another way to plot rules is Individual Rule Representation.<br />
+Remember that rhs is the item customer buy while lhs is the item bought with first item.<br />
+
+This plot represent the top 10 rules by lift metric. <br />
+
+The darker the color the stronger the rule become.For example ROUND CAKE TIN VINTAGE GREEN has rule with BISCUIT TIN VINTAGE GREEN. So, who buy ROUND CAKE TIN VINTAGE GREEN will definitely buy ROUND CAKE TIN VINTAGE GREEN as well. <br />
+Note:I found this plot hard to understand but it is useful to explain simple example as mentioned.
+
+
+
+```{r, echo=FALSE , warning=FALSE, message=FALSE}
+# Filter top 20 rules with highest lift
+subRules2<-head(Final_AR, n=10, by="lift")
+plot(subRules2, method="paracoord")
+```
+
+
+
+
+
+
+
