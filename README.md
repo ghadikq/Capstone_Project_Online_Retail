@@ -5,6 +5,13 @@
 Understand data better and extract insights from it to provide insight for decision-makers to improve company marketing and increase sales.<br />
 Also, showcase how can adding a recommender engine help to increase the company sales.
 
+# RESEARCH QUESTIONS
+* COUNTRY - How many customers from different country , dose profit change?<br />
+* QUANTITY - How dose quantity trend change based on date?<br />
+* PROFIT - How was the profit for this year based on months and days?<br />
+* PRODUCTS - What is most sold products in the store?
+
+
 # Dataset
 
 This analysis is on Online_Retail_II dataset provided by UCI [Link](https://archive.ics.uci.edu/ml/datasets/Online+Retail+II). <br /> 
@@ -31,5 +38,5 @@ You can access the dataset directly from data folder in this repository.
 ## Repository content
 
 * Online Retail R Markdown.<br />
-* Online Retail html.
+* Online Retail html.<br />
 * Online Retail ppt slide for presentation.
